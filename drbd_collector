@@ -1,0 +1,169 @@
+#    drbd_collector
+#    Copyright (C) 2024  William Mandra
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <https://www.gnu.org/licenses/>
+#!/bin/bash
+
+DRBD_STATUS=$(sudo /usr/sbin/drbdadm sh-status)
+DRBD_RESOURCE=""
+DRBD_VOLUME=""
+DRBD_VOLUME_STATE=
+DRBD_VOLUME_ROLE=
+DRBD_VOLUME_DISK=
+DRBD_VOLUME_RESYNC=""
+
+DRBD::GetState()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "StandAlone")
+            RESULT=0
+            ;;
+        "Disconnecting")
+            RESULT=1
+            ;;
+        "Unconnected")
+            RESULT=2
+            ;;
+        "Timeout")
+            RESULT=3
+            ;;
+        "BrokenPipe")
+            RESULT=4
+            ;;
+        "NetworkFailure")
+            RESULT=5
+            ;;
+        "ProtocolError")
+            RESULT=6
+            ;;
+        "TearDown")
+            RESULT=7
+            ;;
+        "Connected")
+            RESULT=8
+            ;;
+        "Connecting")
+            RESULT=9
+            ;;
+        *)
+            RESULT=-1
+            ;;
+    esac
+}
+
+DRBD::GetRole()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "Unknown")
+            RESULT=0
+            ;;
+        "Primary")
+            RESULT=1
+            ;;
+        "Secondary")
+            RESULT=2
+            ;;
+        *)
+            RESULT=-1
+            ;;
+    esac
+}
+
+DRBD::GetDiskState()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "UpToDate")
+            RESULT=0
+            ;;
+        "Consistent")
+            RESULT=1
+            ;;
+        "Negotiating")
+            RESULT=2
+            ;;
+        "Attaching")
+            RESULT=3
+            ;;
+        "Detaching")
+            RESULT=4
+            ;;
+        "Outdated")
+            RESULT=5
+            ;;
+        "Inconsistent")
+            RESULT=6
+            ;;
+        "Failed")
+            RESULT=7
+            ;;
+        "Diskless")
+            RESULT=8
+            ;;
+        *)
+            RESULT=-1
+            ;;
+    esac
+}
+
+Influx::WriteOutput()
+{
+    if [[ "${DRBD_VOLUME}" != "" ]]; then
+        SYNC=""
+        if [[ "${DRBD_VOLUME_RESYNC}" != "" ]]; then
+            SYNC=",resync=${DRBD_VOLUME_RESYNC}"
+        fi
+        echo "drbd,resource=${DRBD_RESOURCE},volume=${DRBD_VOLUME} state=${DRBD_VOLUME_STATE}i,role=${DRBD_VOLUME_ROLE}i,disk=${DRBD_VOLUME_DISK}i${SYNC}"
+    fi
+}
+
+for line in ${DRBD_STATUS}; do
+    KEY=$(echo ${line} | awk -F "=" '{print $1}' | sed -r 's/^(_)(.*)/\2/')
+    VALUE=$(echo ${line} | awk -F "=" '{print $2}')
+
+    case ${KEY} in
+        "res_name")
+            DRBD_RESOURCE="${VALUE}"
+            ;;
+        "volume")
+            Influx::WriteOutput
+            DRBD_VOLUME="${VALUE}"
+            ;;
+        "cstate")
+            DRBD::GetState "${VALUE}" DRBD_VOLUME_STATE
+            ;;
+        "role")
+            DRBD::GetRole "${VALUE}" DRBD_VOLUME_ROLE
+            ;;
+        "disk")
+            DRBD::GetDiskState "${VALUE}" DRBD_VOLUME_DISK
+            ;;
+        "resynced_percent")
+            DRBD_VOLUME_RESYNC="${VALUE}"
+            ;;
+    esac
+done;
+
+Influx::WriteOutput
+
+exit 0
+  
