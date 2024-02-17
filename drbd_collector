@@ -29,41 +29,42 @@ DRBD::GetState()
     local -n RESULT=$2
 
     case ${VALUE} in
-        "StandAlone")
+        "Connecting")
             RESULT=0
             ;;
-        "Disconnecting")
+        "Connected")
             RESULT=1
             ;;
-        "Unconnected")
+        "Disconnecting")
             RESULT=2
             ;;
-        "Timeout")
+        "Unconnected")
             RESULT=3
             ;;
-        "BrokenPipe")
+        "TearDown")
             RESULT=4
             ;;
-        "NetworkFailure")
+        "Timeout")
             RESULT=5
             ;;
-        "ProtocolError")
+        "BrokenPipe")
             RESULT=6
             ;;
-        "TearDown")
+        "NetworkFailure")
             RESULT=7
             ;;
-        "Connected")
+        "ProtocolError")
             RESULT=8
             ;;
-        "Connecting")
+        "StandAlone")
             RESULT=9
             ;;
         *)
-            RESULT=-1
+            RESULT=99
             ;;
     esac
 }
+
 
 DRBD::GetRole()
 {
@@ -71,17 +72,17 @@ DRBD::GetRole()
     local -n RESULT=$2
 
     case ${VALUE} in
-        "Unknown")
-            RESULT=0
-            ;;
         "Primary")
             RESULT=1
             ;;
         "Secondary")
             RESULT=2
             ;;
+        "Unknown")
+            RESULT=3
+            ;;
         *)
-            RESULT=-1
+            RESULT=99
             ;;
     esac
 }
@@ -120,7 +121,7 @@ DRBD::GetDiskState()
             RESULT=8
             ;;
         *)
-            RESULT=-1
+            RESULT=99
             ;;
     esac
 }
