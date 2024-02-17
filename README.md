@@ -29,6 +29,10 @@ Add the following to the suders.conf file to permit sudo access:
 
 ```telegraf ALL=(ALL) NOPASSWD: /usr/sbin/drbdsetup```
 
+To prevent log spam from sudo access also add the following:
+
+```Defaults:telegraf !syslog```
+
 ### Metrics
 - state
 - role
