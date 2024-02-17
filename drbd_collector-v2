@@ -1,0 +1,300 @@
+#!/bin/bash
+# drbd_collector
+# Copyright (C) 2024  William Mandra
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>
+
+STATISTICS_ENABLED=
+DRBD_COMMAND=$(which drbdsetup)
+
+if [[ "" == "${DRBD_COMMAND}" ]]; then
+    exit 1
+fi
+
+DRBD_STATUS=$(sudo $DRBD_COMMAND sh-status)
+
+if [[ "" == "${DRBD_STATUS}" ]]; then
+    exit 0
+fi
+
+## ---------------------------------------------------------------------------------------------------------------------------------
+
+###
+ #  @brief  Get the detailed statistics for the specified resource.
+ #
+ #  @param  DRBD resource name
+ #  @param  result
+ ##
+DRBD::GetResourceStatistics()
+{
+    local -r RESOURCE="${1}"
+    local -n RESULT=$2
+
+    RESULT=$(sudo $DRBD_COMMAND status ${RESOURCE} --statistics | sed -e 's/^[[:space:]]*//')
+}
+
+###
+ #  @brief  Convert string state for connection to integer.
+ #
+ #  @param  Connection state
+ #  @param  result
+ ##
+DRBD::GetState()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "Connecting")
+            RESULT=0
+            ;;
+        "Connected")
+            RESULT=1
+            ;;
+        "Disconnecting")
+            RESULT=2
+            ;;
+        "Unconnected")
+            RESULT=3
+            ;;
+        "TearDown")
+            RESULT=4
+            ;;
+        "Timeout")
+            RESULT=5
+            ;;
+        "BrokenPipe")
+            RESULT=6
+            ;;
+        "NetworkFailure")
+            RESULT=7
+            ;;
+        "ProtocolError")
+            RESULT=8
+            ;;
+        "StandAlone")
+            RESULT=9
+            ;;
+        *)
+            RESULT=99
+            ;;
+    esac
+}
+
+###
+ #  @brief  Convert string role for volume or resource to integer.
+ #
+ #  @param  Role
+ #  @param  result
+ ##
+DRBD::GetRole()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "Primary")
+            RESULT=1
+            ;;
+        "Secondary")
+            RESULT=2
+            ;;
+        "Unknown")
+            RESULT=3
+            ;;
+        *)
+            RESULT=99
+            ;;
+    esac
+}
+
+###
+ #  @brief  Convert string disk state for volume to integer.
+ #
+ #  @param  Disk state
+ #  @param  result
+ ##
+DRBD::GetDiskState()
+{
+    local -r VALUE="${1}"
+    local -n RESULT=$2
+
+    case ${VALUE} in
+        "UpToDate")
+            RESULT=0
+            ;;
+        "Consistent")
+            RESULT=1
+            ;;
+        "Negotiating")
+            RESULT=2
+            ;;
+        "Attaching")
+            RESULT=3
+            ;;
+        "Detaching")
+            RESULT=4
+            ;;
+        "Outdated")
+            RESULT=5
+            ;;
+        "Inconsistent")
+            RESULT=6
+            ;;
+        "Failed")
+            RESULT=7
+            ;;
+        "Diskless")
+            RESULT=8
+            ;;
+        *)
+            RESULT=99
+            ;;
+    esac
+}
+
+###
+ #  @brief  Gets an individual statistic for a volume from drbdsetup status --statistics output
+ #
+ #  @param  output from drbdsetup status --statistics
+ #  @param  the name of the value to return
+ #  @param  the volume number for the statistic to return
+ #  @param  result
+ ##
+DRBD::GetStatistic()
+{
+    local -r STATS="${1}"
+    local -r STAT="${2}"
+    local -r VOLUME="${3}"
+    local -n RESULT=$4
+
+    if [[ "${STATS}" == "" || "${STAT}" == "" ]]; then
+        RESULT=""
+        return
+    fi
+
+    local VALUE=
+    if [[ "${STAT}" == "read" || "${STAT}" == "received" ]]; then
+        VALUE=$(echo "${STATS}" | grep -A1 "volume:${VOLUME}" | grep "${STAT}" | awk -F " " '{print $1}' | awk -F ":" '{print $2}')
+    else
+        VALUE=$(echo "${STATS}" | grep -A1 "volume:${VOLUME}" | grep "${STAT}" | awk -F " " '{print $2}' | awk -F ":" '{print $2}')
+    fi
+
+    if [[ "" != "${VALUE}" ]]; then
+        RESULT=",${STAT}=${VALUE}i"
+    fi
+}
+
+###
+ #  @brief  Parse the output of dbdbsetup sh-status
+ ##
+DRBD::ParseStatus()
+{
+    local DRBD_RESOURCE=""
+    local DRBD_VOLUME=""
+    local DRBD_VOLUME_STATE=
+    local DRBD_VOLUME_ROLE=
+    local DRBD_VOLUME_DISK=
+    local DRBD_VOLUME_RESYNC=""
+    local DRBD_STATISTICS=
+
+    for line in ${DRBD_STATUS}; do
+        KEY=$(echo ${line} | awk -F "=" '{print $1}' | sed -r 's/^(_)(.*)/\2/')
+        VALUE=$(echo ${line} | awk -F "=" '{print $2}')
+
+        case ${KEY} in
+            "res_name")
+                DRBD_RESOURCE="${VALUE}"
+                if [ ! -z $STATISTICS_ENABLED ]; then
+                    # Get the statistics here since we may have multiple resources. Keep the
+                    # output in a variable so we dont have to call drbdsetup for each volume 
+                    DRBD::GetResourceStatistics "${DRBD_RESOURCE}" DRBD_STATISTICS
+                fi
+                ;;
+            "volume")
+                # Write out any previous volumes before parsing new data
+                Influx::WriteOutput "${DRBD_RESOURCE}" "${DRBD_VOLUME}" "${DRBD_VOLUME_STATE}" "${DRBD_VOLUME_ROLE}" "${DRBD_VOLUME_DISK}" "${DRBD_VOLUME_RESYNC}" "${DRBD_STATISTICS}"
+                DRBD_VOLUME="${VALUE}"
+                ;;
+            "cstate")
+                DRBD::GetState "${VALUE}" DRBD_VOLUME_STATE
+                ;;
+            "role")
+                DRBD::GetRole "${VALUE}" DRBD_VOLUME_ROLE
+                ;;
+            "disk")
+                DRBD::GetDiskState "${VALUE}" DRBD_VOLUME_DISK
+                ;;
+            "resynced_percent")
+                DRBD_VOLUME_RESYNC="${VALUE}"
+                ;;
+        esac
+    done;
+
+    Influx::WriteOutput "${DRBD_RESOURCE}" "${DRBD_VOLUME}" "${DRBD_VOLUME_STATE}" "${DRBD_VOLUME_ROLE}" "${DRBD_VOLUME_DISK}" "${DRBD_VOLUME_RESYNC}" "${DRBD_STATISTICS}"
+}
+
+## ---------------------------------------------------------------------------------------------------------------------------------
+
+###
+ #  @brief  output volume data in influx line format
+ #
+ #  @param  the name of the DRBD resource
+ #  @param  the DRBD volume number
+ #  @param  the current DRBD connection state (as an integer)
+ #  @param  the current DRBD role (as an integer)
+ #  @param  the current DRBD disk state (as an integer)
+ #  @param  the current DRBD resync percent (as a float)
+ #  @param  the extended statistics for the DRBD resource
+ ##
+Influx::WriteOutput()
+{
+    local -r RESOURCE="${1}"
+    local -r VOLUME="${2}"
+    local -r STATE="${3}"
+    local -r ROLE="${4}"
+    local -r DISK="${5}"
+    local -r RESYNC="${6}"
+    local -r STATISTICS="${7}"
+
+    if [[ "${VOLUME}" != "" ]]; then
+        SYNC=""
+        if [[ "${RESYNC}" != "" ]]; then
+            SYNC=",resync=${RESYNC}"
+        fi
+
+        READ=""
+        WRITTEN=""
+        RECEIVED=""
+        SENT=""
+        if [ ! -z $STATISTICS_ENABLED ]; then
+            DRBD::GetStatistic "${STATISTICS}" "read"     "${VOLUME}" READ
+            DRBD::GetStatistic "${STATISTICS}" "written"  "${VOLUME}" WRITTEN
+            DRBD::GetStatistic "${STATISTICS}" "received" "${VOLUME}" RECEIVED
+            DRBD::GetStatistic "${STATISTICS}" "sent"     "${VOLUME}" SENT 
+        fi
+
+        echo "drbd,resource=${RESOURCE},volume=${VOLUME} state=${STATE}i,role=${ROLE}i,disk=${DISK}i${READ}${WRITTEN}${RECEIVED}${SENT}${SYNC}"
+    fi
+}
+
+## ---------------------------------------------------------------------------------------------------------------------------------
+
+if [[ "${1}" == "--statistics" ]]; then
+    STATISTICS_ENABLED=1
+fi
+
+DRBD::ParseStatus
+
+exit 0
