@@ -15,7 +15,7 @@
 #    along with this program.  If not, see <https://www.gnu.org/licenses/>
 #!/bin/bash
 
-DRBD_STATUS=$(sudo /usr/sbin/drbdadm sh-status)
+DRBD_STATUS=$(sudo /usr/sbin/drbdsetup sh-status)
 DRBD_RESOURCE=""
 DRBD_VOLUME=""
 DRBD_VOLUME_STATE=
