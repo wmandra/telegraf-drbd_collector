@@ -15,7 +15,7 @@ Basic script for use with the telegraf exec input plugin to collect DRBD status 
 ### Sudoers
 By default the telegraf service runs as the telegraf user which will prevent the drbd_collector script from running the drdbadm command.
 Add the following to the suders.conf file to permit sudo access:
-```telegraf ALL=(ALL) NOPASSWD: /usr/sbin/drbdadm```
+```telegraf ALL=(ALL) NOPASSWD: /usr/sbin/drbdsetup```
 
 ### Metrics
 - state
