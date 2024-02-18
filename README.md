@@ -22,6 +22,18 @@ Basic script for use with the telegraf exec input plugin to collect DRBD status 
   name_suffix = ""
   data_format = "influx"
 ```
+##### Frequency
+You can reduce the frequency of just the drbd_collector by adding an interval entry to the ```[[inputs.exec]]``` configuration:
+```
+[[inputs.exec]]
+  commands = [
+    "/usr/local/bin/drbd_collector-v2 --statistics"
+  ]
+  timeout = "5s"
+  interval = "30s"
+  name_suffix = ""
+  data_format = "influx"
+```
 
 ### Sudoers
 By default the telegraf service runs as the telegraf user which will prevent the drbd_collector script from running the drdbadm command.
