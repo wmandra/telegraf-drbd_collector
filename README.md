@@ -51,17 +51,17 @@ To prevent log spam from sudo access also add the following:
 - disk
 - resync
 
+#### Tags
+- resource
+- volume
+
 #### Optional Metrics
 When using the v2 script and the ```--statistics``` parameter these additional metrics will be provided per volume
 - read
 - written
 - sent
 - received
-
-#### Tags
-- resource
-- volume
-
+  
 #### Example Output
 ```
 drbd,host=node04,resource=nfs,volume=0 disk=0i,role=2i,state=8i 1708126124000000000
@@ -76,5 +76,5 @@ convert back to text values for display purposes.
 
 The resync metric is only provided in the output when it is present in the drbdadm status.
 
-##### ToDO
+##### ToDo
 Potentially rewrite in go for inclusion as telegraf plugin.
